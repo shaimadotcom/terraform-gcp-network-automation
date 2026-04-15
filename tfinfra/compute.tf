@@ -17,18 +17,17 @@ resource "google_compute_instance" "vm_backend" {
   metadata_startup_script = <<-EOF
     #!/bin/bash
     apt-get update -y
-    apt-get install -y nodejs npm
+    apt-get install -y nodejs npm git
+
+    # 1. Clone your repo
     mkdir -p /home/app
-    cat <<'JSEOF' > /home/app/server.js
-const http = require('http');
-const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({ status: 'ok', message: 'Hello from backend!' }));
-});
-server.listen(3000, () => console.log('Backend running on port 3000'));
-JSEOF
-    node /home/app/server.js &
+    git clone https://github.com/shaimadotcom/terraform-gcp-network-automation.git /home/app/repo
+
+    # 2. Navigate to backend folder and run
+    cd /home/app/repo/backend
+    npm install
+    # Using nohup to keep the process running after the script finishes
+    nohup node server.js > /var/log/backend.log 2>&1 &
   EOF
 
   tags = ["backend"]
@@ -53,25 +52,24 @@ resource "google_compute_instance" "vm_frontend" {
   metadata_startup_script = <<-EOF
     #!/bin/bash
     apt-get update -y
-    apt-get install -y nginx
+    apt-get install -y nginx git
+
+    #  Get the Backend Internal IP from Terraform
     BACKEND_IP="${google_compute_instance.vm_backend.network_interface[0].network_ip}"
-    cat > /var/www/html/index.html <<HTML
-<!DOCTYPE html>
-<html>
-<head><title>Frontend</title></head>
-<body>
-  <h1>Frontend VM</h1>
-  <p>Calling backend at: $BACKEND_IP:3000</p>
-  <div id="result">Loading...</div>
-  <script>
-    fetch('http://$BACKEND_IP:3000')
-      .then(r => r.json())
-      .then(d => document.getElementById('result').innerText = JSON.stringify(d))
-      .catch(e => document.getElementById('result').innerText = 'Error: ' + e);
-  </script>
-</body>
-</html>
-HTML
+
+
+    git clone https://github.com/shaimadotcom/terraform-gcp-network-automation.git /tmp/repo
+
+    # 3. Inject the Backend IP into your frontend code 
+    # replaces the text 'BACKEND_IP_PLACEHOLDER' 
+    sed -i "s/BACKEND_IP_PLACEHOLDER/$BACKEND_IP/g" /tmp/repo/frontend/index.html
+    
+
+
+    cp -r /tmp/repo/frontend/* /var/www/html/
+
+
+    rm -rf /tmp/repo
     systemctl restart nginx
   EOF
 
